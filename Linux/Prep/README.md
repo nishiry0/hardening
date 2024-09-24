@@ -99,7 +99,7 @@ sudo shred -uz userlist.txt
 sudo shred -uz user_list.txt
 sudo shred -uz script.log
 
-# 1行で。
+# 上記のコマンドのワンライナー
 sudo shred -uz sysinfo.txt userlist.txt user_list.txt script.log
 ```
 
