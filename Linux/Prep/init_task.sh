@@ -214,7 +214,7 @@ main_func (){
                 echo "$USERLIST_FILE が既に存在します。次回実行時にはこのファイルが使用されます。"
                 log "User list creation skipped by user; existing $USERLIST_FILE will be used in next run."
             else
-                echo "$USERLIST_FILE が存在しません。パスワード変更を行うにはユーザーリストが必要です。"
+                echo "$USERLIST_FILE が存在しません。パスワード変更を行うには $USERLIST_FILE が必要です。"
                 log "User list creation skipped and $USERLIST_FILE does not exist. Cannot proceed with password changes."
                 exit 1
             fi
@@ -242,7 +242,7 @@ main_func (){
                 change_passwords_func
             else
                 log "Password changes skipped by user."
-                echo "次回実行時、既存のユーザーリストが使用されます。"
+                echo "次回実行時、既存の $USERLIST_FILE が使用されます。"
             fi
         fi
     else
