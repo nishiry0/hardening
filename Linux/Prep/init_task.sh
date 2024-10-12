@@ -5,8 +5,9 @@ interactive=false
 password_file=""
 delete_password_file=false  # デフォルトは削除しない
 default_password="P@ssw0rd"
+backup_dir="./backup"  # デフォルトのバックアップディレクトリ
 
-while getopts ":ip:d" opt; do
+while getopts ":ip:db:" opt; do
   case $opt in
     i)
       interactive=true
@@ -15,12 +16,15 @@ while getopts ":ip:d" opt; do
       password_file="$OPTARG"
       ;;
     d)
-      if [ -n "$password_file" ]; then
+      if [ -n "$password_file" ];then
         delete_password_file=true  # -d が指定されていて -p も指定されている場合に削除を有効化
       else
         echo "警告: -d オプションが指定されましたが、-p オプションが指定されていません。-d は無視されます。" >&2
         delete_password_file=false
       fi
+      ;;
+    b)
+      backup_dir="$OPTARG"
       ;;
     \?)
       echo "無効なオプションです: -$OPTARG" >&2
@@ -36,23 +40,38 @@ if [ "$EUID" -ne 0 ];then
 fi
 
 # 出力ファイルとログファイルの設定
-SYSINFO_FILE="sysinfo.txt"
 USERLIST_FILE="user_list.txt"
 LOG_FILE="script.log"
 
-touch "$SYSINFO_FILE" "$LOG_FILE"
+touch "$LOG_FILE"
 
 # ログ関数
 log(){
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
 }
 
+# バックアップディレクトリの作成
+create_backup_dir(){
+    if [ -d "$backup_dir" ];then
+        echo "エラー: $backup_dir は既に存在します。" >&2
+        log "Error: $backup_dir already exists."
+        exit 1
+    else
+        mkdir -p "$backup_dir"
+        if [ $? -eq 0 ];then
+            log "Backup directory $backup_dir created."
+        else
+            echo "エラー: $backup_dir の作成に失敗しました。" >&2
+            log "Error: Failed to create backup directory $backup_dir."
+            exit 1
+        fi
+    fi
+}
+
 # パスワード取得関数（パスワードファイルがない場合はデフォルトパスワードを使用）
 get_password(){
     if [ -n "$password_file" ];then
-        # パスワードファイルが指定された場合
         if [ -f "$password_file" ];then
-            # ファイルに1行のみが含まれているか確認
             PASSWORD=$(cat "$password_file")
             if [ $(wc -l < "$password_file") -ne 1 ];then
                 echo "エラー: $password_file は1行のみ含む必要があります。" >&2
@@ -66,7 +85,6 @@ get_password(){
             exit 1
         fi
     else
-        # -pが指定されていない場合はデフォルトのパスワードを使用
         echo "$default_password"
     fi
 }
@@ -78,76 +96,40 @@ backup_files(){
     log "Backup of /etc/passwd and /etc/shadow created."
 }
 
-# crontabのチェック関数
-check_crontab_func (){
-    for user in $(cut -f1 -d: /etc/passwd);do
-        echo "###### $user crontab is:" >> "$SYSINFO_FILE"
-        cat /var/spool/cron/{crontabs/$user,$user} 2>/dev/null >> "$SYSINFO_FILE"
-    done
-}
-
-# システム情報列挙関数
+# システム情報列挙関数（ファイルを分けて保存）
 enumerate_func (){
     log "Starting system enumeration."
-    date -u >> "$SYSINFO_FILE"
-    uname -a >> "$SYSINFO_FILE"
+    create_backup_dir  # バックアップディレクトリの作成
 
-    if . /etc/os-release ; then
-        OS=$NAME
-    else
-        . /usr/lib/os-release
-        OS=$NAME
-    fi
+    # 各コマンド結果を個別ファイルに保存
+    ps auxf > "$backup_dir/ps_auxf.txt" && log "ps auxf saved to $backup_dir/ps_auxf.txt"
+    ip a > "$backup_dir/ip_a.txt" && log "ip a saved to $backup_dir/ip_a.txt"
+    ip r > "$backup_dir/ip_r.txt" && log "ip r saved to $backup_dir/ip_r.txt"
+    ss -ltpn > "$backup_dir/ss_ltpn.txt" && log "ss -ltpn saved to $backup_dir/ss_ltpn.txt"
+    systemctl list-unit-files > "$backup_dir/systemctl_list_unit_files.txt" && log "systemctl list-unit-files saved to $backup_dir/systemctl_list_unit_files.txt"
+    iptables -L > "$backup_dir/iptables_L.txt" && log "iptables -L saved to $backup_dir/iptables_L.txt"
 
-    echo "OS is $ID" >> "$SYSINFO_FILE"
-    lscpu >> "$SYSINFO_FILE"
-    lsblk >> "$SYSINFO_FILE"
-    ip a >> "$SYSINFO_FILE"
-
-    if command -v netstat >/dev/null 2>&1;then
-        netstat -auntp >> "$SYSINFO_FILE"
-    elif command -v ss >/dev/null 2>&1;then
-        ss -auntp >> "$SYSINFO_FILE"
-    else
-        echo "Neither netstat nor ss command found." >> "$SYSINFO_FILE"
-    fi
-
-    df >> "$SYSINFO_FILE"
-    check_crontab_func
-    cat /etc/crontab >> "$SYSINFO_FILE"
-    ls -la /etc/cron.* >> "$SYSINFO_FILE"
+    # 追加のシステム情報
+    df > "$backup_dir/df.txt" && log "df saved to $backup_dir/df.txt"
+    uname -a > "$backup_dir/uname.txt" && log "uname -a saved to $backup_dir/uname.txt"
+    lscpu > "$backup_dir/lscpu.txt" && log "lscpu saved to $backup_dir/lscpu.txt"
+    lsblk > "$backup_dir/lsblk.txt" && log "lsblk saved to $backup_dir/lsblk.txt"
 
     if command -v sestatus >/dev/null 2>&1;then
-        sestatus >> "$SYSINFO_FILE"
+        sestatus > "$backup_dir/sestatus.txt" && log "sestatus saved to $backup_dir/sestatus.txt"
     else
-        echo "sestatus command not found." >> "$SYSINFO_FILE"
+        echo "sestatus command not found." >> "$backup_dir/sestatus.txt" && log "sestatus command not found."
     fi
 
     if command -v getenforce >/dev/null 2>&1;then
-        getenforce >> "$SYSINFO_FILE"
+        getenforce > "$backup_dir/getenforce.txt" && log "getenforce saved to $backup_dir/getenforce.txt"
     else
-        echo "getenforce command not found." >> "$SYSINFO_FILE"
+        echo "getenforce command not found." >> "$backup_dir/getenforce.txt" && log "getenforce command not found."
     fi
 
-    if [ -f /root/.bash_history ];then
-        cat /root/.bash_history >> "$SYSINFO_FILE"
-    fi
+    cat /etc/passwd > "$backup_dir/passwd.txt" && log "/etc/passwd saved to $backup_dir/passwd.txt"
+    cat /etc/group > "$backup_dir/group.txt" && log "/etc/group saved to $backup_dir/group.txt"
 
-    if [ -f ~/.bash_history ];then
-        cat ~/.bash_history >> "$SYSINFO_FILE"
-    fi
-
-    cat /etc/group >> "$SYSINFO_FILE"
-    cat /etc/passwd >> "$SYSINFO_FILE"
-
-    if [ "$OS" = "Ubuntu" ] || [ "$OS" = "Debian" ];then
-        if command -v ufw >/dev/null 2>&1;then
-            ufw_status=$(ufw status)
-            echo "ufw $ufw_status" >> "$SYSINFO_FILE"
-        else
-            echo "ufw command not found." >> "$SYSINFO_FILE"
-        fi
-    fi
     log "System enumeration completed."
 }
 
@@ -217,6 +199,7 @@ change_passwords_func (){
             log "Failed to change password for $user."
         fi
     done
+
     log "Password changes completed."
 }
 
@@ -262,7 +245,6 @@ main_func (){
             fi
         fi
 
-        # パスワード変更処理
         read -p "ユーザーのパスワードを変更しますか？ (Y/n): " pw_answer
         if [[ ! "$pw_answer" =~ ^[Nn]$ ]];then
             change_passwords_func
@@ -270,7 +252,6 @@ main_func (){
             log "Password change skipped by user."
         fi
 
-        # 最後にパスワードファイル削除関数を呼び出し
         delete_password_file_func
     else
         backup_files
@@ -280,8 +261,11 @@ main_func (){
         change_passwords_func
         delete_password_file_func
     fi
+
+    # script.logをバックアップディレクトリにコピー
+    cp "$LOG_FILE" "$backup_dir/script.log"
+    log "script.log copied to $backup_dir"
 }
 
 # メイン関数を呼び出す
 main_func
-
