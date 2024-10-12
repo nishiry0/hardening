@@ -91,15 +91,24 @@ get_password(){
 
 # ファイルバックアップ関数
 backup_files(){
-    cp /etc/passwd /etc/passwd.bak
-    cp /etc/shadow /etc/shadow.bak
-    log "Backup of /etc/passwd and /etc/shadow created."
+    log "Starting file backup."
+
+    # /etc ディレクトリ内の重要なファイルをバックアップディレクトリにコピー
+    mkdir -p "$backup_dir/etc"  # backup_dir 内に etc フォルダを作成
+
+    # 必要なファイルをバックアップ
+    cp -pr /etc/passwd "$backup_dir/etc/passwd" && log "/etc/passwd backed up to $backup_dir/etc/passwd"
+    cp -pr /etc/shadow "$backup_dir/etc/shadow" && log "/etc/shadow backed up to $backup_dir/etc/shadow"
+    cp -pr /etc/group "$backup_dir/etc/group" && log "/etc/group backed up to $backup_dir/etc/group"
+    cp -pr /etc/gshadow "$backup_dir/etc/gshadow" && log "/etc/gshadow backed up to $backup_dir/etc/gshadow"
+    cp -pr /etc/sudoers "$backup_dir/etc/sudoers" && log "/etc/sudoers backed up to $backup_dir/etc/sudoers"
+
+    log "File backup completed."
 }
 
 # システム情報列挙関数（ファイルを分けて保存）
 enumerate_func (){
     log "Starting system enumeration."
-    create_backup_dir  # バックアップディレクトリの作成
 
     # 各コマンド結果を個別ファイルに保存
     ps auxf > "$backup_dir/ps_auxf.txt" && log "ps auxf saved to $backup_dir/ps_auxf.txt"
@@ -126,9 +135,6 @@ enumerate_func (){
     else
         echo "getenforce command not found." >> "$backup_dir/getenforce.txt" && log "getenforce command not found."
     fi
-
-    cat /etc/passwd > "$backup_dir/passwd.txt" && log "/etc/passwd saved to $backup_dir/passwd.txt"
-    cat /etc/group > "$backup_dir/group.txt" && log "/etc/group saved to $backup_dir/group.txt"
 
     log "System enumeration completed."
 }
@@ -216,6 +222,9 @@ delete_password_file_func(){
 
 # メイン処理関数
 main_func (){
+    # 最初にバックアップディレクトリを作成
+    create_backup_dir
+
     if [ "$interactive" = true ];then
         read -p "システム情報の収集を行いますか？ (Y/n): " answer
         if [[ ! "$answer" =~ ^[Nn]$ ]];then
