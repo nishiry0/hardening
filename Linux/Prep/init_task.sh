@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 
-# オプションの解析
 interactive=false
 password_file=""
-delete_password_file=false  # デフォルトは削除しない
+delete_password_file=false 
 default_password="P@ssw0rd"
-backup_dir="./backup"  # デフォルトのバックアップディレクトリ
+backup_dir="./backup"
 
 while getopts ":ip:db:" opt; do
   case $opt in
@@ -48,6 +47,20 @@ touch "$LOG_FILE"
 # ログ関数
 log(){
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+# OS検出関数（最初に1回だけ呼び出して結果をグローバル変数に保存）
+detect_os(){
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        VERSION_ID=$VERSION_ID
+    else
+        echo "エラー: OSを識別できませんでした。" >&2
+        log "Error: Failed to identify OS."
+        exit 1
+    fi
+    log "OS detected as $OS version $VERSION_ID."
 }
 
 # バックアップディレクトリの作成
@@ -95,6 +108,7 @@ backup_files(){
 
     # /etc ディレクトリ内の重要なファイルをバックアップディレクトリにコピー
     mkdir -p "$backup_dir/etc"  # backup_dir 内に etc フォルダを作成
+    mkdir -p "$backup_dir/var/spool"  # spoolディレクトリを作成
 
     # 必要なファイルをバックアップ
     cp -pr /etc/passwd "$backup_dir/etc/passwd" && log "/etc/passwd backed up to $backup_dir/etc/passwd"
@@ -102,6 +116,32 @@ backup_files(){
     cp -pr /etc/group "$backup_dir/etc/group" && log "/etc/group backed up to $backup_dir/etc/group"
     cp -pr /etc/gshadow "$backup_dir/etc/gshadow" && log "/etc/gshadow backed up to $backup_dir/etc/gshadow"
     cp -pr /etc/sudoers "$backup_dir/etc/sudoers" && log "/etc/sudoers backed up to $backup_dir/etc/sudoers"
+
+    # OSに依存するバックアップファイル
+    case "$OS" in
+        "ubuntu")
+            cp -pr /etc/netplan "$backup_dir/etc/netplan" && log "/etc/netplan backed up to $backup_dir/etc/netplan"
+            ;;
+        "centos"|"rocky")
+            cp -pr /etc/sysconfig/network-scripts "$backup_dir/etc/sysconfig/network-scripts" && log "/etc/sysconfig/network-scripts backed up to $backup_dir/etc/sysconfig/network-scripts"
+            ;;
+    esac
+
+    # 共有ファイル
+    cp -pr /etc/fstab "$backup_dir/etc/fstab" && log "/etc/fstab backed up to $backup_dir/etc/fstab"
+    cp -pr /etc/hostname "$backup_dir/etc/hostname" && log "/etc/hostname backed up to $backup_dir/etc/hostname"
+    cp -pr /etc/hosts "$backup_dir/etc/hosts" && log "/etc/hosts backed up to $backup_dir/etc/hosts"
+    cp -pr /etc/resolv.conf "$backup_dir/etc/resolv.conf" && log "/etc/resolv.conf backed up to $backup_dir/etc/resolv.conf"
+    
+    # cronファイルのバックアップ
+    if [ -d /var/spool/cron ]; then
+        cp -pr /var/spool/cron "$backup_dir/var/spool/cron" && log "/var/spool/cron backed up to $backup_dir/var/spool/cron"
+    fi
+
+    # SSHディレクトリのバックアップ
+    if [ -d /etc/ssh ]; then
+        cp -pr /etc/ssh "$backup_dir/etc/ssh" && log "/etc/ssh backed up to $backup_dir/etc/ssh"
+    fi
 
     log "File backup completed."
 }
@@ -222,7 +262,10 @@ delete_password_file_func(){
 
 # メイン処理関数
 main_func (){
-    # 最初にバックアップディレクトリを作成
+    # OSを検出
+    detect_os
+
+    # バックアップディレクトリを作成
     create_backup_dir
 
     if [ "$interactive" = true ];then
@@ -231,6 +274,14 @@ main_func (){
             enumerate_func
         else
             log "System enumeration skipped by user."
+        fi
+
+        # 重要ファイルのバックアップ確認を追加
+        read -p "重要ファイルのバックアップを作成しますか？ (Y/n): " backup_answer
+        if [[ ! "$backup_answer" =~ ^[Nn]$ ]];then
+            backup_files  # 重要ファイルのバックアップを実行
+        else
+            log "Important file backup skipped by user."
         fi
 
         read -p "バックアップ管理者ユーザーを作成しますか？ (Y/n): " answer
@@ -263,8 +314,8 @@ main_func (){
 
         delete_password_file_func
     else
-        backup_files
         enumerate_func
+        backup_files
         backup_admin_func
         list_users_func
         change_passwords_func
