@@ -69,9 +69,11 @@ function ufw_update() {
         echo "UFW は有効化されませんでした。手動で設定してください。"
       fi
     else
-      # クイックモードでは有効化されていない場合、処理をスキップ
+      # クイックモードでは有効化されていない場合でもルールを追加し、リロードはしない
       if [[ "$(ufw status | grep -w inactive)" ]]; then
-        echo "UFW が無効化されているため、ファイアウォール設定をスキップします。"
+        echo "UFW が無効ですが、ポート番号 $port_number のルールを追加します。"
+        ufw allow $port_number/tcp
+        echo "UFW が無効化されたままですが、ルールは追加されました。"
       else
         # UFW が有効化されている場合の処理
         echo "UFW は有効です。ポート番号 $port_number を許可します。"
@@ -85,7 +87,7 @@ function ufw_update() {
 
 # ファイアウォールの設定を更新する関数 (firewalld)
 function firewalld_update() {
-  if [[ "$(firewall-cmd --state)" =~ ^.*not.*$ ]] ; then
+  if [[ "$(firewall-cmd --state)" =~ ^.*not.*$ ]]; then
     if [ -z "$1" ]; then
       # インタラクティブモードでは確認を求める
       echo -n "firewalld は無効です。firewalld を有効にしてポート番号を許可しますか？ (y/n): "
@@ -99,8 +101,10 @@ function firewalld_update() {
         echo "firewalld は有効化されませんでした。手動で設定してください。"
       fi
     else
-      # クイックモードでは有効化されていない場合、処理をスキップ
-      echo "firewalld が無効化されているため、ファイアウォール設定をスキップします。"
+      # クイックモードでは有効化されていない場合でもルールを追加し、リロードはしない
+      echo "firewalld が無効ですが、ポート番号 $port_number のルールを追加します。"
+      firewall-cmd --permanent --zone=public --add-port=$port_number/tcp
+      echo "firewalld が無効化されたままですが、ルールは追加されました。"
     fi
   else
     # firewalld が有効化されている場合の処理
@@ -109,6 +113,7 @@ function firewalld_update() {
     echo "firewalld でポート番号 $port_number を許可しました。"
   fi
 }
+
 
 # SELinux と Firewall の確認と設定 (firewalld / UFW)
 function firewall_check() {
@@ -257,11 +262,11 @@ function selinux_update() {
     mkswap /temp_swapfile1
     swapon /temp_swapfile1
   fi
-  
+
   echo "SELinux に新しいポート番号を設定します。"
   echo "ポート番号: $port_number"
   semanage port -a -t ssh_port_t -p tcp $port_number
-  
+
   if [[ -f /temp_swapfile1 ]] ; then
     echo "一時的なスワップファイルを削除します。"
     swapoff /temp_swapfile1
@@ -269,34 +274,49 @@ function selinux_update() {
   fi
 }
 
-# SELinux が Enforcing モードか Permissive モードか確認する関数
+# SELinux が Enforcing モードか Permissive モードか確認し、自動化する関数
 function selinux_check() {
   if command -v getenforce > /dev/null 2>&1; then
-    if [[ "$(getenforce)" == "Enforcing" ]] ; then
-      echo "SELinux は Enforcing モードで動作しています。"
-      echo "ポート番号を変更した場合、SELinux の設定を更新する必要があります。"
-      echo -n "SELinux を更新しますか？ (y/n) "
-      read selinux_update_response
-      case $selinux_update_response in
-        [Yy]|[Yy][Ee][Ss]) selinux_update ;;
-        [Nn]|[Nn][Oo]) echo "SELinux は変更されません。" ;;
-        *) echo "不明なコマンドです..." ;;
-      esac 
-    elif [[ "$(getenforce)" == "Permissive" ]] ; then
-      echo "SELinux は Permissive モードで動作しています。"
-      echo "ポート番号を変更した場合、SELinux の設定を更新する必要があります。"
-      echo -n "SELinux を更新しますか？ (y/n) "
-      read selinux_update_response
-      case $selinux_update_response in
-        [Yy]|[Yy][Ee][Ss]) selinux_update ;;
-        [Nn]|[Nn][Oo]) echo "SELinux は変更されません。" ;;
-        *) echo "不明なコマンドです..." ;;
-      esac
+    if [[ "$(getenforce)" == "Enforcing" ]]; then
+      if [ -z "$1" ]; then
+        # インタラクティブモードでは確認を求める
+        echo "SELinux は Enforcing モードで動作しています。"
+        echo "ポート番号を変更した場合、SELinux の設定を更新する必要があります。"
+        echo -n "SELinux を更新しますか？ (y/n) "
+        read selinux_update_response
+        case $selinux_update_response in
+          [Yy]|[Yy][Ee][Ss]) selinux_update ;;
+          [Nn]|[Nn][Oo]) echo "SELinux は変更されません。" ;;
+          *) echo "不明なコマンドです..." ;;
+        esac 
+      else
+        # クイックモードでは自動的にSELinuxを更新
+        echo "SELinux を自動的に更新しています..."
+        selinux_update
+      fi
+    elif [[ "$(getenforce)" == "Permissive" ]]; then
+      if [ -z "$1" ]; then
+        # インタラクティブモードで確認
+        echo "SELinux は Permissive モードで動作しています。"
+        echo "ポート番号を変更した場合、SELinux の設定を更新する必要があります。"
+        echo -n "SELinux を更新しますか？ (y/n) "
+        read selinux_update_response
+        case $selinux_update_response in
+          [Yy]|[Yy][Ee][Ss]) selinux_update ;;
+          [Nn]|[Nn][Oo]) echo "SELinux は変更されません。" ;;
+          *) echo "不明なコマンドです..." ;;
+        esac
+      else
+        # クイックモードでは自動的にSELinuxを更新
+        echo "SELinux を自動的に更新しています..."
+        selinux_update
+      fi
     fi
   else
     echo "SELinux はインストールされていません。"
   fi
 }
+
 
 # sshd を再起動する関数（クイックモードでは自動的に再起動）
 function restart_sshd() {
