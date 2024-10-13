@@ -87,7 +87,20 @@ function ufw_update() {
 
 # ファイアウォールの設定を更新する関数 (firewalld)
 function firewalld_update() {
-  if [[ "$(firewall-cmd --state)" =~ ^.*not.*$ ]]; then
+  firewalld_state=$(firewall-cmd --state 2>&1)
+
+  if [[ "$firewalld_state" == "running" ]]; then
+    # firewalld が有効化されている場合は通常通り処理を行う
+    firewall-cmd --permanent --zone=public --add-port=$port_number/tcp
+    if [[ $? -eq 0 ]]; then
+      # 追加が成功した場合にのみメッセージを表示
+      firewall-cmd --reload
+      echo "firewalld でポート番号 $port_number を許可しました。"
+    else
+      echo "ポートの追加に失敗しました。"
+    fi
+  else
+    # firewalld が無効化されている場合はポート設定をスキップ
     if [ -z "$1" ]; then
       # インタラクティブモードでは確認を求める
       echo -n "firewalld は無効です。firewalld を有効にしてポート番号を許可しますか？ (y/n): "
@@ -98,21 +111,15 @@ function firewalld_update() {
         firewall-cmd --reload
         echo "firewalld が有効化され、ポート番号 $port_number を許可しました。"
       else
-        echo "firewalld は有効化されませんでした。手動で設定してください。"
+        echo "firewalld は無効のままです。ポートの設定は行われませんでした。"
       fi
     else
-      # クイックモードでは有効化されていない場合でもルールを追加し、リロードはしない
-      echo "firewalld が無効ですが、ポート番号 $port_number のルールを追加します。"
-      firewall-cmd --permanent --zone=public --add-port=$port_number/tcp
-      echo "firewalld が無効化されたままですが、ルールは追加されました。"
+      # クイックモードでは無効化状態でポート設定をスキップし、メッセージを表示
+      echo "firewalld が無効のため、ポート番号 $port_number のルールは追加されませんでした。"
     fi
-  else
-    # firewalld が有効化されている場合の処理
-    firewall-cmd --permanent --zone=public --add-port=$port_number/tcp
-    firewall-cmd --reload
-    echo "firewalld でポート番号 $port_number を許可しました。"
   fi
 }
+
 
 
 # SELinux と Firewall の確認と設定 (firewalld / UFW)
@@ -359,7 +366,7 @@ function quick_config() {
   # disable_pw  # PW認証は無効化しない
   disable_rhosts
   warning_banner auto
-  selinux_check
+  selinux_check auto
   # クイックモードでは自動でファイアウォール設定を更新、無効化されている場合はスキップ
   if [[ $OS == "Ubuntu" ]]; then
     ufw_update auto
