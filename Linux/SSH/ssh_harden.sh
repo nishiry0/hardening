@@ -69,27 +69,45 @@ function ufw_update() {
         echo "UFW は有効化されませんでした。手動で設定してください。"
       fi
     else
-      # クイックモードでは自動的に有効化してポート番号を許可
-      echo "UFW は無効です。自動的に有効化してポート番号を許可します。"
-      ufw --force enable
-      ufw allow $port_number/tcp
-      ufw reload
-      echo "UFW が自動的に有効化され、ポート番号 $port_number を許可しました。"
+      # クイックモードでは有効化されていない場合、処理をスキップ
+      if [[ "$(ufw status | grep -w inactive)" ]]; then
+        echo "UFW が無効化されているため、ファイアウォール設定をスキップします。"
+      else
+        # UFW が有効化されている場合の処理
+        echo "UFW は有効です。ポート番号 $port_number を許可します。"
+        ufw allow $port_number/tcp
+        ufw reload
+        echo "UFW でポート番号 $port_number を許可しました。"
+      fi
     fi
   fi
 }
 
-
-
 # ファイアウォールの設定を更新する関数 (firewalld)
 function firewalld_update() {
   if [[ "$(firewall-cmd --state)" =~ ^.*not.*$ ]] ; then
-    systemctl start firewalld.service
-    echo "firewalld を有効にしました。"
+    if [ -z "$1" ]; then
+      # インタラクティブモードでは確認を求める
+      echo -n "firewalld は無効です。firewalld を有効にしてポート番号を許可しますか？ (y/n): "
+      read firewalld_enable_response
+      if [[ $firewalld_enable_response == "y" || $firewalld_enable_response == "Y" ]]; then
+        systemctl start firewalld.service
+        firewall-cmd --permanent --zone=public --add-port=$port_number/tcp
+        firewall-cmd --reload
+        echo "firewalld が有効化され、ポート番号 $port_number を許可しました。"
+      else
+        echo "firewalld は有効化されませんでした。手動で設定してください。"
+      fi
+    else
+      # クイックモードでは有効化されていない場合、処理をスキップ
+      echo "firewalld が無効化されているため、ファイアウォール設定をスキップします。"
+    fi
+  else
+    # firewalld が有効化されている場合の処理
+    firewall-cmd --permanent --zone=public --add-port=$port_number/tcp
+    firewall-cmd --reload
+    echo "firewalld でポート番号 $port_number を許可しました。"
   fi
-  firewall-cmd --permanent --zone=public --add-port=$port_number/tcp
-  firewall-cmd --reload
-  echo "firewalld でポート番号 $port_number を許可しました。"
 }
 
 # SELinux と Firewall の確認と設定 (firewalld / UFW)
@@ -286,16 +304,24 @@ function restart_sshd() {
     echo -n "sshd を再起動しますか？ (y/n): "
     read restart_response
     if [[ $restart_response == "y" || $restart_response == "Y" ]]; then
-      systemctl restart sshd || echo "sshd.service が見つかりませんでした。手動で再起動を試みてください。"
+      if systemctl restart sshd 2>/dev/null; then
+        echo "sshd を再起動しました。"
+      else
+        echo "sshd.service が見つかりませんでした。手動で再起動を試みてください。"
+      fi
     else
       echo "sshd の再起動をスキップしました。手動で再起動してください。"
     fi
   else
     # クイックモードで自動再起動
-    systemctl restart sshd || echo "sshd.service が見つかりませんでした。手動で再起動を試みてください。"
-    echo "sshd を再起動しました。"
+    if systemctl restart sshd 2>/dev/null; then
+      echo "sshd を再起動しました。"
+    else
+      echo "sshd.service が見つかりませんでした。手動で再起動を試みてください。"
+    fi
   fi
 }
+
 
 # クイックモード用の関数 (自動実行)
 function quick_config() {
@@ -310,17 +336,18 @@ function quick_config() {
   max_auth 5
   empty_passwords
   login_gt 30
-  disable_pw
+  # disable_pw  # PW認証は無効化しない
   disable_rhosts
   warning_banner auto
   selinux_check
-  # クイックモードでは自動でファイアウォール設定を更新
+  # クイックモードでは自動でファイアウォール設定を更新、無効化されている場合はスキップ
   if [[ $OS == "Ubuntu" ]]; then
-    ufw_update
+    ufw_update auto
   else
-    firewalld_update
+    firewalld_update auto
   fi
-  restart_sshd auto
+  # restart_sshd auto  # クイックモードではsshdを再起動しない
+  echo "sshdは手動で再起動してください。"
 }
 
 # インタラクティブモードでの実行 (ユーザー確認)
@@ -420,10 +447,10 @@ function guided_config() {
 # スクリプトの実行モードを確認し、インタラクティブまたはクイックで処理を進める
 if [ "$1" == "i" ]; then
   guided_config
-  echo "完了しました！"
+  echo "== Done ==="
 elif [ "$1" == "q" ];then
   quick_config
-  echo "完了しました！"
+  echo "== Done ==="
 else
   echo "インタラクティブモード 'i' またはクイックモード 'q' でスクリプトを開始してください。"
 fi
