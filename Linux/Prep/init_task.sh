@@ -65,13 +65,12 @@ detect_os(){
 
 # バックアップディレクトリの作成
 create_backup_dir(){
-    if [ -d "$backup_dir" ];then
-        echo "エラー: $backup_dir は既に存在します。" >&2
-        log "Error: $backup_dir already exists."
-        exit 1
+    if [ -d "$backup_dir" ]; then
+        echo "$backup_dir は既に存在します。既存のディレクトリを使用します。" >&2
+        log "$backup_dir already exists. Using the existing directory."
     else
         mkdir -p "$backup_dir"
-        if [ $? -eq 0 ];then
+        if [ $? -eq 0 ]; then
             log "Backup directory $backup_dir created."
         else
             echo "エラー: $backup_dir の作成に失敗しました。" >&2
@@ -80,6 +79,7 @@ create_backup_dir(){
         fi
     fi
 }
+
 
 # パスワード取得関数（パスワードファイルがない場合はデフォルトパスワードを使用）
 get_password(){
